@@ -65,7 +65,7 @@ void StateMachine::onReset() {
     state_ = core::TCPState::CLOSED;
 }
 
-bool StateMachine::canTransition(core::TCPState new_state) const {
+bool StateMachine::canTransition(core::TCPState /* new_state */) const {
     // Simplified transition validation
     return true;
 }

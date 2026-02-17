@@ -71,8 +71,8 @@ Request Smuggling::buildMalformed(const std::string& url,
     }
 }
 
-bool Smuggling::detectVulnerability(const std::string& url,
-                                    SmugglingType type) {
+bool Smuggling::detectVulnerability(const std::string& /* url */,
+                                    SmugglingType /* type */) {
     // TODO: Implement actual vulnerability detection
     // This would involve sending test requests and analyzing timing/responses
     return false;

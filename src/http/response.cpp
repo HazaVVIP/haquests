@@ -81,7 +81,7 @@ bool Response::parseStatusLine(const std::string& line) {
     return status_code_ > 0;
 }
 
-bool Response::parseHeaders(const std::string& header_section) {
+bool Response::parseHeaders(const std::string& /* header_section */) {
     // Already implemented in parse()
     return true;
 }
