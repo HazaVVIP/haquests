@@ -142,12 +142,10 @@ private:
     
     bool waitForSYNACK() {
         const int timeout_seconds = 5;
-        const int max_attempts = 10;
         
         auto start_time = std::chrono::steady_clock::now();
-        int attempts = 0;
         
-        while (attempts < max_attempts) {
+        while (true) {
             auto current_time = std::chrono::steady_clock::now();
             auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                 current_time - start_time).count();
@@ -178,10 +176,7 @@ private:
                     }
                 }
             }
-            
-            attempts++;
-            // Small delay before next check
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            // select() already provides timing, no additional sleep needed
         }
         
         return false; // Failed to receive SYN-ACK
