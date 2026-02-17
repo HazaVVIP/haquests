@@ -119,19 +119,39 @@ make -j$(nproc)
 
 ## 📚 Cara Penggunaan
 
-### Menjalankan Contoh Program
+### Setup Firewall (PENTING!)
 
-Setelah build, Anda bisa menjalankan contoh program yang sudah disediakan:
+HAQuests menggunakan raw socket untuk membuat koneksi TCP. Untuk mencegah kernel Linux mengirim paket RST yang mengganggu koneksi raw socket, Anda perlu menambahkan aturan iptables:
 
 ```bash
-# Dari build directory
+# Jalankan script setup firewall (hanya perlu dilakukan sekali)
+sudo ./scripts/setup_firewall.sh
+```
+
+Script ini akan menambahkan aturan iptables untuk memblokir paket RST keluar dari port yang digunakan HAQuests. **Tanpa langkah ini, koneksi TCP tidak akan berfungsi dengan benar.**
+
+Untuk menghapus aturan firewall:
+
+```bash
+# Hapus aturan firewall
+sudo ./scripts/cleanup_firewall.sh
+```
+
+**Catatan**: Aturan firewall akan hilang setelah reboot kecuali Anda membuatnya persisten. Lihat output dari `setup_firewall.sh` untuk instruksi lebih lanjut.
+
+### Menjalankan Contoh Program
+
+Setelah build dan setup firewall, Anda bisa menjalankan contoh program yang sudah disediakan:
+
+```bash
+# Dari root directory repository
 cd build/examples
 
 # Jalankan simple HTTP GET (memerlukan sudo untuk raw socket)
 sudo ./simple_http_get http://example.com
 
 # Jalankan TLS connection test
-sudo ./tls_connection
+sudo ./tls_connection https://www.google.com
 
 # Jalankan HTTP smuggling demo (hanya untuk testing di lab sendiri!)
 sudo ./smuggling_clte
