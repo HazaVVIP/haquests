@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  haquests-dev:
+    build: .
+    container_name: haquests-dev
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - .:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - haquests-net
+    command: /bin/bash
+
+  test-server:
+    image: nginx:alpine
+    container_name: test-server
+    networks:
+      - haquests-net
+    ports:
+      - "8080:80"
+
+networks:
+  haquests-net:
+    driver: bridge
