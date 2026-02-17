@@ -22,7 +22,7 @@ target_link_libraries(haquests
 set_target_properties(haquests PROPERTIES
     VERSION ${PROJECT_VERSION}
     SOVERSION 0
-    PUBLIC_HEADER include/haquests/haquests.hpp
+    PUBLIC_HEADER ${PROJECT_SOURCE_DIR}/include/haquests/haquests.hpp
 )
 
 # Install library

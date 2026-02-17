@@ -38,9 +38,23 @@ HAQuests adalah library C++ yang dirancang khusus untuk security research dan pe
 - C++17 compiler (GCC 9+ atau Clang 10+)
 - CMake 3.15 atau lebih tinggi
 - OpenSSL 1.1.1+
-- libpcap
+- libpcap development package
 - CAP_NET_RAW capability atau root access
 - Docker (opsional, untuk development)
+
+#### Install Dependencies
+
+```bash
+# Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install -y build-essential cmake libssl-dev libpcap-dev
+
+# Fedora/RHEL
+sudo dnf install -y gcc-c++ cmake openssl-devel libpcap-devel
+
+# Arch Linux
+sudo pacman -S base-devel cmake openssl libpcap
+```
 
 ### Build dari Source
 
@@ -58,6 +72,36 @@ make -j$(nproc)
 
 # Install (membutuhkan sudo)
 sudo make install
+
+# Update linker cache
+sudo ldconfig
+```
+
+**Catatan**: Jika build berhasil, library akan diinstall ke `/usr/local/lib/` dan header files ke `/usr/local/include/haquests/`.
+
+### Verifikasi Instalasi
+
+Setelah instalasi, verifikasi bahwa library terinstall dengan benar:
+
+```bash
+# Cek library file
+ls -l /usr/local/lib/libhaquests.so*
+
+# Cek header files
+ls -l /usr/local/include/haquests/
+
+# Test compile simple program
+cat > test.cpp << 'EOF'
+#include <haquests/haquests.hpp>
+#include <iostream>
+int main() {
+    std::cout << "HAQuests OK!" << std::endl;
+    return 0;
+}
+EOF
+
+g++ -std=c++17 test.cpp -lhaquests -lssl -lcrypto -o test
+./test
 ```
 
 ### Development dengan Docker
@@ -74,6 +118,33 @@ make -j$(nproc)
 ```
 
 ## 📚 Cara Penggunaan
+
+### Menjalankan Contoh Program
+
+Setelah build, Anda bisa menjalankan contoh program yang sudah disediakan:
+
+```bash
+# Dari build directory
+cd build/examples
+
+# Jalankan simple HTTP GET (memerlukan sudo untuk raw socket)
+sudo ./simple_http_get http://example.com
+
+# Jalankan TLS connection test
+sudo ./tls_connection
+
+# Jalankan HTTP smuggling demo (hanya untuk testing di lab sendiri!)
+sudo ./smuggling_clte
+```
+
+**PENTING**: Program-program ini memerlukan CAP_NET_RAW capability. Alternatif untuk sudo:
+
+```bash
+# Set capability pada executable
+sudo setcap cap_net_raw=eip ./simple_http_get
+# Sekarang bisa dijalankan tanpa sudo
+./simple_http_get http://example.com
+```
 
 ### 1. Basic HTTP Request
 
@@ -178,17 +249,64 @@ int main() {
 }
 ```
 
-### 4. Compile dan Run
+### 4. Compile dan Run Program Anda
+
+#### Setelah Install Library
+
+Jika library sudah terinstall dengan `sudo make install`:
 
 ```bash
-# Compile contoh program
+# Compile program Anda
 g++ -std=c++17 my_program.cpp -lhaquests -lssl -lcrypto -o my_program
 
 # Jalankan (membutuhkan CAP_NET_RAW atau root)
 sudo ./my_program
 
-# Atau dengan setcap
-sudo setcap cap_net_raw+ep ./my_program
+# Atau dengan setcap (lebih aman dari sudo)
+sudo setcap cap_net_raw=eip ./my_program
+./my_program
+```
+
+#### Tanpa Install Library (link langsung dari build directory)
+
+```bash
+# Compile dengan link langsung ke build directory
+g++ -std=c++17 my_program.cpp \
+    -I/path/to/haquests/include \
+    -L/path/to/haquests/build/src \
+    -lhaquests -lssl -lcrypto \
+    -Wl,-rpath,/path/to/haquests/build/src \
+    -o my_program
+
+# Jalankan
+sudo ./my_program
+```
+
+#### Troubleshooting
+
+Jika mendapat error "cannot find -lhaquests":
+```bash
+# Pastikan library path sudah dikonfigurasi
+sudo ldconfig
+# Atau tambahkan path secara manual
+export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+```
+
+Jika mendapat error "cannot open shared object file":
+```bash
+# Jalankan ldconfig
+sudo ldconfig
+# Atau set LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+```
+
+Jika mendapat error "CAP_NET_RAW capability required":
+```bash
+# Opsi 1: Jalankan dengan sudo
+sudo ./my_program
+
+# Opsi 2: Set capability (lebih aman)
+sudo setcap cap_net_raw=eip ./my_program
 ./my_program
 ```
 
