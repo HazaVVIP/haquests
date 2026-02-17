@@ -33,6 +33,9 @@ int main(int argc, char* argv[]) {
         
         // Create TLS connection
         tls::Connection conn;
+        // Disable certificate verification for testing purposes
+        // In production, you should verify certificates!
+        conn.setVerifyCertificate(false);
         if (!conn.connect(host, port)) {
             std::cerr << "Failed to connect" << std::endl;
             return 1;

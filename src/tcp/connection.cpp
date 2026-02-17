@@ -91,12 +91,12 @@ public:
     }
     
     std::vector<uint8_t> receive(size_t max_len) {
-        // Keep trying to receive packets until we get one for our connection
-        // Timeout is handled by the underlying socket receive which blocks
-        // We limit attempts to prevent infinite loops in case of unexpected behavior
+        // Accumulate data from multiple packets if needed
+        std::vector<uint8_t> accumulated_data;
         int attempts = 0;
         
-        while (attempts < MAX_RECEIVE_ATTEMPTS) {
+        // Keep trying to receive packets until we get data or timeout
+        while (attempts < MAX_RECEIVE_ATTEMPTS && accumulated_data.empty()) {
             uint8_t buffer[65535];
             ssize_t received = socket_.receive(buffer, sizeof(buffer));
             
@@ -104,17 +104,47 @@ public:
                 // Parse packet and extract TCP payload data
                 std::vector<uint8_t> data = parsePacketData(buffer, received);
                 if (!data.empty()) {
-                    return data;
+                    accumulated_data.insert(accumulated_data.end(), data.begin(), data.end());
+                    
+                    // If we have enough data or hit max_len, return
+                    if (accumulated_data.size() >= max_len) {
+                        accumulated_data.resize(max_len);
+                        return accumulated_data;
+                    }
+                    
+                    // Try to receive more packets with data for our connection
+                    // This allows accumulating data from multiple packets
+                    int extra_attempts = 0;
+                    while (extra_attempts < 10 && accumulated_data.size() < max_len) {
+                        received = socket_.receive(buffer, sizeof(buffer));
+                        if (received > 0) {
+                            data = parsePacketData(buffer, received);
+                            if (!data.empty()) {
+                                accumulated_data.insert(accumulated_data.end(), data.begin(), data.end());
+                            }
+                        } else {
+                            // Timeout or error - return what we have
+                            break;
+                        }
+                        extra_attempts++;
+                    }
+                    
+                    return accumulated_data;
                 }
                 // If empty, it wasn't for our connection, keep trying
+            } else if (received < 0) {
+                // Timeout or error - if we have any data, return it
+                if (!accumulated_data.empty()) {
+                    return accumulated_data;
+                }
+                // Otherwise continue trying
             }
             
             attempts++;
         }
         
-        // Exceeded maximum attempts - this shouldn't happen in normal operation
-        // It indicates either a very busy network or a configuration issue
-        return std::vector<uint8_t>();
+        // Return whatever data we accumulated (might be empty)
+        return accumulated_data;
     }
     
     void close() {
