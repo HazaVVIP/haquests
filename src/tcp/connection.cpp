@@ -4,9 +4,14 @@
 #include "haquests/core/socket.hpp"
 #include "haquests/core/types.hpp"
 #include "haquests/utils/error.hpp"
+#include "haquests/utils/network.hpp"
 #include <random>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <sys/select.h>
+#include <chrono>
+#include <thread>
+#include <cstring>
 
 namespace haquests {
 namespace tcp {
@@ -32,8 +37,11 @@ public:
         
         dst_ip_ = std::string(inet_ntoa(*reinterpret_cast<struct in_addr*>(he->h_addr)));
         
-        // Get local IP (simplified - use first available)
-        src_ip_ = "127.0.0.1";  // TODO: Get actual local IP
+        // Get local IP address that would be used to reach destination
+        src_ip_ = utils::getLocalIPAddress(dst_ip_);
+        if (src_ip_.empty()) {
+            return false;
+        }
         
         // Open raw socket
         if (!socket_.open()) {
@@ -53,8 +61,8 @@ public:
         core::Packet packet;
         
         uint32_t src_ip_int, dst_ip_int;
-        inet_pton(AF_INET, src_ip_.c_str(), &src_ip_int);
-        inet_pton(AF_INET, dst_ip_.c_str(), &dst_ip_int);
+        utils::ipStringToUint32(src_ip_, src_ip_int);
+        utils::ipStringToUint32(dst_ip_, dst_ip_int);
         
         packet.buildIPHeader(src_ip_int, dst_ip_int,
                             sizeof(core::IPHeader) + sizeof(core::TCPHeader) + len);
@@ -118,24 +126,132 @@ private:
         
         state_machine_.onSendSYN();
         
-        // Wait for SYN-ACK (simplified - no timeout handling)
-        // TODO: Implement proper SYN-ACK reception
+        // Wait for SYN-ACK with timeout
+        if (!waitForSYNACK()) {
+            return false;
+        }
         
-        // Send ACK
-        // state_machine_.onReceiveSYNACK();
-        // sendACK();
+        // Send ACK to complete handshake
+        if (!sendACK()) {
+            return false;
+        }
         
-        // For now, mark as established (simplified)
         state_machine_.onEstablished();
         return true;
+    }
+    
+    bool waitForSYNACK() {
+        const int timeout_seconds = 5;
+        
+        auto start_time = std::chrono::steady_clock::now();
+        
+        while (true) {
+            auto current_time = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                current_time - start_time).count();
+            
+            if (elapsed >= timeout_seconds) {
+                return false; // Timeout
+            }
+            
+            // Set up select to wait for incoming packets with timeout
+            fd_set read_fds;
+            FD_ZERO(&read_fds);
+            FD_SET(socket_.getFd(), &read_fds);
+            
+            struct timeval tv;
+            tv.tv_sec = 0;
+            tv.tv_usec = 100000; // 100ms timeout
+            
+            int ready = select(socket_.getFd() + 1, &read_fds, nullptr, nullptr, &tv);
+            
+            if (ready > 0 && FD_ISSET(socket_.getFd(), &read_fds)) {
+                uint8_t buffer[65535];
+                ssize_t received = socket_.receive(buffer, sizeof(buffer));
+                
+                if (received > 0) {
+                    // Parse the received packet
+                    if (parseSYNACK(buffer, received)) {
+                        return true; // Successfully received SYN-ACK
+                    }
+                }
+            }
+            // select() already provides timing, no additional sleep needed
+        }
+        
+        return false; // Failed to receive SYN-ACK
+    }
+    
+    bool parseSYNACK(const uint8_t* buffer, size_t len) {
+        // Minimum packet size check
+        if (len < sizeof(core::IPHeader) + sizeof(core::TCPHeader)) {
+            return false;
+        }
+        
+        const core::IPHeader* ip_hdr = reinterpret_cast<const core::IPHeader*>(buffer);
+        const core::TCPHeader* tcp_hdr = reinterpret_cast<const core::TCPHeader*>(
+            buffer + sizeof(core::IPHeader));
+        
+        // Verify this is a packet for us
+        uint32_t src_ip_int, dst_ip_int;
+        utils::ipStringToUint32(src_ip_, src_ip_int);
+        utils::ipStringToUint32(dst_ip_, dst_ip_int);
+        
+        // Check if packet is from destination to us
+        if (ip_hdr->src_addr != dst_ip_int || ip_hdr->dst_addr != src_ip_int) {
+            return false;
+        }
+        
+        // Check ports
+        if (ntohs(tcp_hdr->src_port) != dst_port_ || 
+            ntohs(tcp_hdr->dst_port) != src_port_) {
+            return false;
+        }
+        
+        // Check if SYN and ACK flags are set
+        if ((tcp_hdr->flags & (core::TCP_FLAG_SYN | core::TCP_FLAG_ACK)) != 
+            (core::TCP_FLAG_SYN | core::TCP_FLAG_ACK)) {
+            return false;
+        }
+        
+        // Verify ACK number matches our SEQ + 1
+        uint32_t expected_ack = seq_num_ + 1;
+        if (ntohl(tcp_hdr->ack_num) != expected_ack) {
+            return false;
+        }
+        
+        // Update our sequence and acknowledgment numbers
+        seq_num_ = expected_ack; // Move our SEQ forward
+        ack_num_ = ntohl(tcp_hdr->seq_num) + 1; // ACK their SEQ + 1
+        
+        state_machine_.onReceiveSYNACK();
+        return true;
+    }
+    
+    bool sendACK() {
+        core::Packet packet;
+        
+        uint32_t src_ip_int, dst_ip_int;
+        utils::ipStringToUint32(src_ip_, src_ip_int);
+        utils::ipStringToUint32(dst_ip_, dst_ip_int);
+        
+        packet.buildIPHeader(src_ip_int, dst_ip_int,
+                            sizeof(core::IPHeader) + sizeof(core::TCPHeader));
+        packet.buildTCPHeader(src_port_, dst_port_, seq_num_, ack_num_, 
+                             core::TCP_FLAG_ACK);
+        
+        uint8_t buffer[65535];
+        size_t packet_size = packet.serialize(buffer, sizeof(buffer));
+        
+        return socket_.send(buffer, packet_size, dst_ip_, dst_port_) > 0;
     }
     
     bool sendSYN() {
         core::Packet packet;
         
         uint32_t src_ip_int, dst_ip_int;
-        inet_pton(AF_INET, src_ip_.c_str(), &src_ip_int);
-        inet_pton(AF_INET, dst_ip_.c_str(), &dst_ip_int);
+        utils::ipStringToUint32(src_ip_, src_ip_int);
+        utils::ipStringToUint32(dst_ip_, dst_ip_int);
         
         packet.buildIPHeader(src_ip_int, dst_ip_int,
                             sizeof(core::IPHeader) + sizeof(core::TCPHeader));
@@ -151,8 +267,8 @@ private:
         core::Packet packet;
         
         uint32_t src_ip_int, dst_ip_int;
-        inet_pton(AF_INET, src_ip_.c_str(), &src_ip_int);
-        inet_pton(AF_INET, dst_ip_.c_str(), &dst_ip_int);
+        utils::ipStringToUint32(src_ip_, src_ip_int);
+        utils::ipStringToUint32(dst_ip_, dst_ip_int);
         
         packet.buildIPHeader(src_ip_int, dst_ip_int,
                             sizeof(core::IPHeader) + sizeof(core::TCPHeader));
