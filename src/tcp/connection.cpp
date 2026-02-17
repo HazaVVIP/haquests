@@ -92,11 +92,12 @@ public:
     
     std::vector<uint8_t> receive(size_t max_len) {
         // Keep trying to receive packets until we get one for our connection
-        // or timeout occurs
-        const int max_attempts = 100; // Prevent infinite loop
+        // Timeout is handled by the underlying socket receive which blocks
+        // We limit attempts to prevent infinite loops in case of unexpected behavior
+        const int MAX_RECEIVE_ATTEMPTS = 100;
         int attempts = 0;
         
-        while (attempts < max_attempts) {
+        while (attempts < MAX_RECEIVE_ATTEMPTS) {
             uint8_t buffer[65535];
             ssize_t received = socket_.receive(buffer, sizeof(buffer));
             
@@ -353,6 +354,9 @@ private:
         const uint8_t* payload = buffer + payload_offset;
         
         // Update acknowledgment number for received data
+        // This indicates we've received data up to (seq_num + payload_len)
+        // TCP retransmissions will have the same seq_num, so this correctly
+        // sets ack_num_ to the same value, which is the expected behavior
         if (payload_len > 0) {
             ack_num_ = ntohl(tcp_hdr->seq_num) + payload_len;
         }
