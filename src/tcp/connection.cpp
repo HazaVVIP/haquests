@@ -29,13 +29,21 @@ public:
     bool connect(const std::string& host, uint16_t port) {
         dst_port_ = port;
         
-        // Resolve host
-        struct hostent* he = gethostbyname(host.c_str());
-        if (!he) {
+        // Resolve host using getaddrinfo (more modern and robust)
+        struct addrinfo hints, *result;
+        std::memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_INET;  // IPv4
+        hints.ai_socktype = SOCK_STREAM;
+        
+        int ret = getaddrinfo(host.c_str(), nullptr, &hints, &result);
+        if (ret != 0) {
             return false;
         }
         
-        dst_ip_ = std::string(inet_ntoa(*reinterpret_cast<struct in_addr*>(he->h_addr)));
+        // Get the first result
+        struct sockaddr_in* addr = reinterpret_cast<struct sockaddr_in*>(result->ai_addr);
+        dst_ip_ = std::string(inet_ntoa(addr->sin_addr));
+        freeaddrinfo(result);
         
         // Get local IP address that would be used to reach destination
         src_ip_ = utils::getLocalIPAddress(dst_ip_);
@@ -83,13 +91,25 @@ public:
     }
     
     std::vector<uint8_t> receive(size_t max_len) {
-        uint8_t buffer[65535];
-        ssize_t received = socket_.receive(buffer, sizeof(buffer));
+        // Keep trying to receive packets until we get one for our connection
+        // or timeout occurs
+        const int max_attempts = 100; // Prevent infinite loop
+        int attempts = 0;
         
-        if (received > 0) {
-            // Parse packet and extract data
-            // Simplified: return all data
-            return std::vector<uint8_t>(buffer, buffer + received);
+        while (attempts < max_attempts) {
+            uint8_t buffer[65535];
+            ssize_t received = socket_.receive(buffer, sizeof(buffer));
+            
+            if (received > 0) {
+                // Parse packet and extract TCP payload data
+                std::vector<uint8_t> data = parsePacketData(buffer, received);
+                if (!data.empty()) {
+                    return data;
+                }
+                // If empty, it wasn't for our connection, keep trying
+            }
+            
+            attempts++;
         }
         
         return std::vector<uint8_t>();
@@ -280,6 +300,64 @@ private:
         
         socket_.send(buffer, packet_size, dst_ip_, dst_port_);
         state_machine_.onSendFIN();
+    }
+    
+    std::vector<uint8_t> parsePacketData(const uint8_t* buffer, size_t len) {
+        // Minimum packet size check
+        if (len < sizeof(core::IPHeader) + sizeof(core::TCPHeader)) {
+            return std::vector<uint8_t>();
+        }
+        
+        const core::IPHeader* ip_hdr = reinterpret_cast<const core::IPHeader*>(buffer);
+        
+        // Calculate IP header length (IHL is in 32-bit words)
+        size_t ip_header_len = (ip_hdr->version_ihl & 0x0F) * 4;
+        
+        // Check if we have enough data for both headers
+        if (len < ip_header_len + sizeof(core::TCPHeader)) {
+            return std::vector<uint8_t>();
+        }
+        
+        const core::TCPHeader* tcp_hdr = reinterpret_cast<const core::TCPHeader*>(
+            buffer + ip_header_len);
+        
+        // Verify this packet is for our connection
+        uint32_t src_ip_int, dst_ip_int;
+        utils::ipStringToUint32(src_ip_, src_ip_int);
+        utils::ipStringToUint32(dst_ip_, dst_ip_int);
+        
+        // Check if packet is from destination to us
+        if (ip_hdr->src_addr != dst_ip_int || ip_hdr->dst_addr != src_ip_int) {
+            return std::vector<uint8_t>();
+        }
+        
+        // Check ports
+        if (ntohs(tcp_hdr->src_port) != dst_port_ || 
+            ntohs(tcp_hdr->dst_port) != src_port_) {
+            return std::vector<uint8_t>();
+        }
+        
+        // Calculate TCP header length (data_offset is in 32-bit words)
+        size_t tcp_header_len = (tcp_hdr->data_offset >> 4) * 4;
+        
+        // Calculate payload offset and length
+        size_t payload_offset = ip_header_len + tcp_header_len;
+        
+        if (payload_offset >= len) {
+            // No payload data
+            return std::vector<uint8_t>();
+        }
+        
+        // Extract payload data
+        size_t payload_len = len - payload_offset;
+        const uint8_t* payload = buffer + payload_offset;
+        
+        // Update acknowledgment number for received data
+        if (payload_len > 0) {
+            ack_num_ = ntohl(tcp_hdr->seq_num) + payload_len;
+        }
+        
+        return std::vector<uint8_t>(payload, payload + payload_len);
     }
     
     StateMachine state_machine_;

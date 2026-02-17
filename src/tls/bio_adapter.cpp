@@ -50,7 +50,8 @@ int BIOAdapter::bioRead(BIO* bio, char* data, int len) {
     
     std::vector<uint8_t> received = conn->receive(len);
     if (received.empty()) {
-        return 0;
+        BIO_set_retry_read(bio);
+        return -1;
     }
     
     std::memcpy(data, received.data(), received.size());
