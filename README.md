@@ -1,203 +1,237 @@
 # HAQuests - HTTP Library dengan Raw Socket C++
 
-> Low-Level Packet Crafting untuk Security Research dan Penetration Testing
+> Low-Level HTTP/TLS Security Testing Library untuk Penetration Testing dan Security Research
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![C++](https://img.shields.io/badge/C++-17-blue.svg)](https://en.cppreference.com/w/cpp/17)
 [![Platform](https://img.shields.io/badge/platform-Linux-lightgrey.svg)](https://www.kernel.org/)
-[![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
 
-## ✅ Status: COMPLETE & BUILDS SUCCESSFULLY!
+## 📖 Tentang HAQuests
 
-All files from [Developer/05-DIRECTORY_STRUCTURE.md](Developer/05-DIRECTORY_STRUCTURE.md) have been implemented and the library compiles without errors.
+HAQuests adalah library C++ yang dirancang khusus untuk security research dan penetration testing dengan fokus pada manipulasi low-level network protocol. Library ini memberikan kontrol penuh terhadap HTTP/TLS communication melalui raw socket, memungkinkan testing untuk vulnerability seperti HTTP request smuggling.
 
-## 🎯 Overview
+### Fitur Utama
 
-HAQuests adalah library HTTP berbasis raw socket C++ yang dirancang untuk memberikan kontrol penuh atas network layers (L4 TCP dan L7 HTTP) untuk keperluan penetration testing dan security research.
+- **🔧 Raw Socket Control**: Manipulasi langsung TCP packets pada network layer
+- **🔒 TLS/SSL Support**: Integrasi OpenSSL untuk HTTPS dengan custom BIO adapter
+- **⚡ HTTP Request Smuggling**: Built-in support untuk CL.TE, TE.CL, dan TE.TE techniques
+- **🛡️ Security Testing**: Tools untuk WAF bypass dan parser differential analysis
+- **📦 Modular Design**: Arsitektur berlapis (Core, TCP, TLS, HTTP, Utils)
 
-### Key Features
+### Kasus Penggunaan
 
-- **🔧 Raw Socket Control**: Manipulasi langsung TCP packets tanpa interference dari OS
-- **🔒 TLS/SSL Support**: Custom OpenSSL BIO integration untuk HTTPS
-- **⚡ HTTP Request Smuggling**: Built-in support untuk CL.TE, TE.CL, TE.TE techniques
-- **🛡️ WAF Bypass**: Advanced evasion techniques dan TCP segmentation control
-- **📦 Modular Design**: Clean separation antara Core, TCP, TLS, dan HTTP layers
-
-### Use Cases
-
-- HTTP Request Smuggling research dan testing
+- HTTP Request Smuggling vulnerability testing
 - Web Application Firewall (WAF) bypass testing
+- Network protocol research dan analysis
 - Penetration testing dengan custom HTTP behaviors
-- Network protocol research dan education
-- Parser differential analysis
+- TLS/SSL security testing
 
 ## ⚠️ Disclaimer
 
-**IMPORTANT**: This tool is designed for authorized security testing and research purposes only. Unauthorized use against systems you don't own or have explicit permission to test may violate laws and regulations.
+**PENTING**: Library ini dirancang khusus untuk authorized security testing dan research purposes. Penggunaan tanpa izin terhadap sistem yang bukan milik Anda atau tanpa explicit permission dapat melanggar hukum dan regulasi. Selalu pastikan Anda memiliki izin eksplisit sebelum melakukan testing terhadap sistem apapun.
 
-## 📚 Documentation
-
-Comprehensive research dan planning documentation tersedia di direktori `Developer/`:
-
-- **[Project Overview](Developer/00-PROJECT_OVERVIEW.md)**: Tujuan, scope, dan filosofi proyek
-- **[Raw Socket Research](Developer/01-RAW_SOCKET_RESEARCH.md)**: Deep dive ke raw socket programming
-- **[TCP State Machine](Developer/02-TCP_STATE_MACHINE.md)**: TCP protocol implementation
-- **[TLS/SSL Integration](Developer/03-TLS_SSL_INTEGRATION.md)**: OpenSSL BIO custom integration
-- **[HTTP Parser & Smuggling](Developer/04-HTTP_PARSER_SMUGGLING.md)**: Request smuggling techniques
-- **[Directory Structure](Developer/05-DIRECTORY_STRUCTURE.md)**: Proposed project organization
-- **[Implementation Roadmap](Developer/06-IMPLEMENTATION_ROADMAP.md)**: Development phases dan timeline
-- **[Testing Strategy](Developer/07-TESTING_STRATEGY.md)**: Comprehensive testing approach
-- **[Research Summary](Developer/README.md)**: Executive summary dari semua research
-
-## 🚀 Quick Start
+## 🚀 Instalasi
 
 ### Prerequisites
 
-- Linux (Ubuntu 20.04+ recommended)
+- Linux (Ubuntu 20.04+ atau distribusi lain)
 - C++17 compiler (GCC 9+ atau Clang 10+)
-- CMake 3.15+
+- CMake 3.15 atau lebih tinggi
 - OpenSSL 1.1.1+
 - libpcap
-- Docker (recommended untuk development)
 - CAP_NET_RAW capability atau root access
+- Docker (opsional, untuk development)
 
-### Installation (Coming Soon)
+### Build dari Source
 
 ```bash
 # Clone repository
 git clone https://github.com/HazaVVIP/haquests.git
 cd haquests
 
-# Initialize submodules
-git submodule update --init --recursive
-
-# Build dengan Docker (recommended)
-docker-compose up -d haquests-dev
-docker-compose exec haquests-dev bash
-
-# Atau build langsung (membutuhkan CAP_NET_RAW)
+# Buat build directory
 mkdir build && cd build
+
+# Configure dan compile
 cmake ..
 make -j$(nproc)
 
-# Run tests
-sudo ./tests/run_tests
-
-# Install
+# Install (membutuhkan sudo)
 sudo make install
 ```
 
-## 📖 Usage Example (Planned)
+### Development dengan Docker
+
+```bash
+# Build dan jalankan container
+docker-compose up -d haquests-dev
+docker-compose exec haquests-dev bash
+
+# Build di dalam container
+mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Debug ..
+make -j$(nproc)
+```
+
+## 📚 Cara Penggunaan
+
+### 1. Basic HTTP Request
 
 ```cpp
 #include <haquests/haquests.hpp>
+#include <iostream>
 
 int main() {
-    // Simple HTTP GET
-    haquests::HTTPClient client;
-    auto response = client.get("http://example.com/");
-    std::cout << response.body << std::endl;
+    using namespace haquests;
     
-    // HTTPS dengan TLS
-    auto secure_response = client.get("https://www.google.com/");
+    // Buat HTTP request
+    HTTP::Request request;
+    request.setMethod("GET");
+    request.setPath("/");
+    request.setVersion("HTTP/1.1");
+    request.addHeader("Host", "example.com");
+    request.addHeader("User-Agent", "HAQuests/1.0");
     
-    // HTTP Request Smuggling (CL.TE)
-    haquests::HTTPSmugglingRequest smuggling;
-    std::string smuggled = "GET /admin HTTP/1.1\r\nHost: target.com\r\n\r\n";
-    std::string payload = smuggling.buildCLTE(smuggled);
-    client.sendRaw(payload);
+    // Buat TCP connection
+    TCP::Connection conn("93.184.216.34", 80); // example.com IP
+    conn.connect();
+    
+    // Kirim request
+    std::string rawRequest = request.build();
+    conn.send(rawRequest);
+    
+    // Terima response
+    std::string response = conn.receive();
+    std::cout << response << std::endl;
     
     return 0;
 }
 ```
 
-## 🏗️ Project Status
+### 2. HTTPS Request dengan TLS
 
-**Current Phase**: Phase 0 - Foundation & Research ✅
+```cpp
+#include <haquests/haquests.hpp>
+#include <iostream>
 
-- [x] Research completed
-- [x] Development plan finalized
-- [x] Directory structure planned
-- [ ] Build system setup (Phase 0)
-- [ ] Core layer implementation (Phase 1)
-- [ ] TCP layer implementation (Phase 2)
-- [ ] HTTP layer implementation (Phase 3)
-- [ ] TLS layer implementation (Phase 4)
-- [ ] Smuggling features (Phase 5)
-- [ ] Advanced features (Phase 6)
-- [ ] Testing & hardening (Phase 7)
-
-**Estimated Timeline**: 3-5 months untuk v1.0
-
-## 🛠️ Development
-
-### Requirements untuk Development
-
-- CAP_NET_RAW capability
-- tcpdump/wireshark untuk debugging
-- Docker (recommended)
-
-### Development Workflow
-
-```bash
-# Setup environment
-docker-compose up -d
-docker-compose exec haquests-dev bash
-
-# Build
-mkdir build && cd build
-cmake -DCMAKE_BUILD_TYPE=Debug ..
-make -j$(nproc)
-
-# Run tests
-./tests/run_tests
-
-# Debug dengan gdb
-sudo gdb ./examples/simple_http_get
+int main() {
+    using namespace haquests;
+    
+    // Buat TLS connection
+    TLS::Connection tls_conn("www.google.com", 443);
+    tls_conn.connect();
+    
+    // Buat dan kirim HTTPS request
+    HTTP::Request request;
+    request.setMethod("GET");
+    request.setPath("/");
+    request.setVersion("HTTP/1.1");
+    request.addHeader("Host", "www.google.com");
+    
+    tls_conn.send(request.build());
+    
+    // Baca response
+    std::string response = tls_conn.receive();
+    std::cout << response << std::endl;
+    
+    return 0;
+}
 ```
 
-### Contributing
+### 3. HTTP Request Smuggling (CL.TE)
 
-Contributions are welcome! Please read our contributing guidelines (coming soon).
+```cpp
+#include <haquests/haquests.hpp>
+#include <iostream>
 
-## 📋 Roadmap
+int main() {
+    using namespace haquests;
+    
+    // CATATAN: Hanya gunakan untuk authorized testing!
+    
+    // Buat smuggling request
+    HTTP::Smuggling smuggler;
+    smuggler.setType(HTTP::Smuggling::Type::CL_TE);
+    
+    // Request pertama (akan dilihat front-end)
+    std::string frontendRequest = 
+        "GET / HTTP/1.1\r\n"
+        "Host: vulnerable-site.com\r\n\r\n";
+    
+    // Request kedua (akan di-smuggle ke back-end)
+    std::string backendRequest = 
+        "GET /admin HTTP/1.1\r\n"
+        "Host: vulnerable-site.com\r\n\r\n";
+    
+    // Build smuggling payload
+    std::string payload = smuggler.build(frontendRequest, backendRequest);
+    
+    // Kirim menggunakan raw TCP
+    TCP::Connection conn("target-ip", 80);
+    conn.connect();
+    conn.send(payload);
+    
+    std::string response = conn.receive();
+    std::cout << response << std::endl;
+    
+    return 0;
+}
+```
 
-### Version 0.1.0 (MVP)
-- Raw socket creation dan packet sending
-- Basic TCP 3-way handshake
-- Simple HTTP GET request
+### 4. Compile dan Run
 
-### Version 0.2.0
-- Full TCP state machine
-- HTTP POST/PUT/DELETE
-- Chunked transfer encoding
+```bash
+# Compile contoh program
+g++ -std=c++17 my_program.cpp -lhaquests -lssl -lcrypto -o my_program
 
-### Version 0.3.0
-- TLS/SSL support
-- HTTPS requests
-- Certificate verification
+# Jalankan (membutuhkan CAP_NET_RAW atau root)
+sudo ./my_program
 
-### Version 0.4.0
-- HTTP Request Smuggling (CL.TE, TE.CL, TE.TE)
-- Smuggling detection framework
+# Atau dengan setcap
+sudo setcap cap_net_raw+ep ./my_program
+./my_program
+```
 
-### Version 1.0.0
-- Complete documentation
-- Performance optimization
-- Production ready
+## 🏗️ Arsitektur
 
-## 📄 License
+HAQuests menggunakan arsitektur berlapis:
 
-This project will be licensed under the MIT License - see the LICENSE file for details.
+1. **Core Layer**: Raw socket, packet structures, checksums
+2. **TCP Layer**: Connection management, state machine (RFC 793), flow control
+3. **TLS Layer**: OpenSSL wrapper dengan custom BIO adapter
+4. **HTTP Layer**: Request/response parsing, smuggling techniques
+5. **Utils Layer**: Logging, error handling, buffers, timers
+
+Lihat file **DIR.md** untuk detail struktur direktori dan penjelasan setiap file.
+
+## 🧪 Testing
+
+```bash
+# Build dengan tests
+cd build
+cmake -DBUILD_TESTS=ON ..
+make -j$(nproc)
+
+# Jalankan unit tests
+sudo ./tests/run_tests
+
+# Atau individual test
+sudo ./tests/unit/test_checksum
+sudo ./tests/unit/test_http_parser
+```
+
+## 📄 Lisensi
+
+Proyek ini dilisensikan di bawah MIT License - lihat file [LICENSE](LICENSE) untuk detail.
 
 ## 🙏 Acknowledgments
 
-- OpenSSL team untuk TLS library
-- libpcap developers
+- OpenSSL team untuk TLS/SSL library
+- libpcap developers untuk packet capture support
 - Security research community
-- PortSwigger Research (HTTP Request Smuggling)
+- PortSwigger Research untuk HTTP Request Smuggling research
 
-## 📞 Contact
+## 📞 Kontak
 
 - GitHub: [@HazaVVIP](https://github.com/HazaVVIP)
 - Repository: [haquests](https://github.com/HazaVVIP/haquests)
@@ -208,4 +242,4 @@ This tool is provided for educational and authorized testing purposes only. The 
 
 ---
 
-**Note**: Project ini masih dalam tahap research dan planning. Implementation akan dimulai setelah research phase selesai.
+**Made with ❤️ for the security research community**
