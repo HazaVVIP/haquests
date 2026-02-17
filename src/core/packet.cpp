@@ -2,6 +2,7 @@
 #include "haquests/core/types.hpp"
 #include "haquests/core/checksum.hpp"
 #include <cstring>
+#include <cstdlib>
 #include <arpa/inet.h>
 
 namespace haquests {
@@ -20,7 +21,7 @@ void Packet::buildIPHeader(uint32_t src_ip, uint32_t dst_ip, uint16_t total_len)
     ip_header.id = htons(rand() % 65535);
     ip_header.frag_off = 0;
     ip_header.ttl = DEFAULT_TTL;
-    ip_header.protocol = IPPROTO_TCP_NUM;
+    ip_header.protocol = IPPROTO_TCP;
     ip_header.src_addr = src_ip;
     ip_header.dst_addr = dst_ip;
     ip_header.checksum = 0;

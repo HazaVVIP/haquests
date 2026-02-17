@@ -31,7 +31,7 @@ uint16_t tcpChecksum(uint32_t src_ip, uint32_t dst_ip,
     pseudo.src_addr = src_ip;
     pseudo.dst_addr = dst_ip;
     pseudo.zero = 0;
-    pseudo.protocol = IPPROTO_TCP_NUM;
+    pseudo.protocol = IPPROTO_TCP;
     pseudo.tcp_length = htons(tcp_len);
     
     // Calculate checksum over pseudo-header + TCP segment

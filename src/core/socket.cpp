@@ -4,7 +4,6 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#include <sys/capability.h>
 #include <cstring>
 
 namespace haquests {
