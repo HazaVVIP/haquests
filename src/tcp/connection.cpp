@@ -95,8 +95,18 @@ public:
         std::vector<uint8_t> accumulated_data;
         int attempts = 0;
         
+        // Set overall timeout for receiving (30 seconds total)
+        const auto timeout_duration = std::chrono::seconds(30);
+        auto start_time = std::chrono::steady_clock::now();
+        
         // Keep trying to receive packets until we get data or timeout
         while (attempts < MAX_RECEIVE_ATTEMPTS && accumulated_data.empty()) {
+            // Check if we've exceeded overall timeout
+            auto elapsed = std::chrono::steady_clock::now() - start_time;
+            if (elapsed >= timeout_duration) {
+                break;
+            }
+            
             uint8_t buffer[65535];
             ssize_t received = socket_.receive(buffer, sizeof(buffer));
             
@@ -116,6 +126,12 @@ public:
                     // This allows accumulating data from multiple packets
                     int extra_attempts = 0;
                     while (extra_attempts < 10 && accumulated_data.size() < max_len) {
+                        // Check timeout again
+                        elapsed = std::chrono::steady_clock::now() - start_time;
+                        if (elapsed >= timeout_duration) {
+                            break;
+                        }
+                        
                         received = socket_.receive(buffer, sizeof(buffer));
                         if (received > 0) {
                             data = parsePacketData(buffer, received);
@@ -137,7 +153,7 @@ public:
                 if (!accumulated_data.empty()) {
                     return accumulated_data;
                 }
-                // Otherwise continue trying
+                // Otherwise continue trying (will be limited by overall timeout)
             }
             
             attempts++;
