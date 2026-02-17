@@ -38,7 +38,7 @@ HAQuests adalah library C++ yang dirancang khusus untuk security research dan pe
 - C++17 compiler (GCC 9+ atau Clang 10+)
 - CMake 3.15 atau lebih tinggi
 - OpenSSL 1.1.1+
-- libpcap-dev
+- libpcap development package
 - CAP_NET_RAW capability atau root access
 - Docker (opsional, untuk development)
 
