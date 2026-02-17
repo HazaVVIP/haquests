@@ -94,7 +94,6 @@ public:
         // Keep trying to receive packets until we get one for our connection
         // Timeout is handled by the underlying socket receive which blocks
         // We limit attempts to prevent infinite loops in case of unexpected behavior
-        const int MAX_RECEIVE_ATTEMPTS = 100;
         int attempts = 0;
         
         while (attempts < MAX_RECEIVE_ATTEMPTS) {
@@ -113,6 +112,8 @@ public:
             attempts++;
         }
         
+        // Exceeded maximum attempts - this shouldn't happen in normal operation
+        // It indicates either a very busy network or a configuration issue
         return std::vector<uint8_t>();
     }
     
@@ -372,6 +373,10 @@ private:
     uint16_t dst_port_;
     std::string src_ip_;
     std::string dst_ip_;
+    
+    // Maximum number of receive attempts before giving up
+    // This prevents infinite loops when filtering packets
+    static constexpr int MAX_RECEIVE_ATTEMPTS = 100;
 };
 
 Connection::Connection() : impl_(new Impl()) {}
