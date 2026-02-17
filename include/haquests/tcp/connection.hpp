@@ -11,6 +11,10 @@
 namespace haquests {
 namespace tcp {
 
+// TCP Connection implementation using raw sockets
+// 
+// Note: This class is NOT thread-safe. Do not call methods on the same
+// Connection object concurrently from multiple threads.
 class Connection {
 public:
     Connection();

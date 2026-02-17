@@ -376,6 +376,15 @@ private:
     
     // Maximum number of receive attempts before giving up
     // This prevents infinite loops when filtering packets
+    // 
+    // When using raw sockets, we receive ALL TCP packets on the interface,
+    // not just packets for our connection. We need to filter them and retry.
+    // In a busy network, we might receive many packets before finding ours.
+    // 
+    // The value of 100 was chosen as a reasonable balance:
+    // - High enough to handle busy networks with many concurrent connections
+    // - Low enough to prevent excessive blocking (with typical socket timeouts)
+    // - Can be adjusted based on performance requirements
     static constexpr int MAX_RECEIVE_ATTEMPTS = 100;
 };
 
