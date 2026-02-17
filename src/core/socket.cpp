@@ -10,6 +10,10 @@
 namespace haquests {
 namespace core {
 
+// Socket receive timeout in seconds
+// This prevents raw socket receive operations from blocking indefinitely
+static constexpr int SOCKET_RECV_TIMEOUT_SECONDS = 5;
+
 RawSocket::RawSocket() : sockfd_(-1), is_open_(false) {}
 
 RawSocket::~RawSocket() {
@@ -37,7 +41,7 @@ bool RawSocket::open() {
     
     // Set receive timeout to prevent indefinite blocking
     struct timeval tv;
-    tv.tv_sec = 5;  // 5 second timeout
+    tv.tv_sec = SOCKET_RECV_TIMEOUT_SECONDS;
     tv.tv_usec = 0;
     if (setsockopt(sockfd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
         ::close(sockfd_);

@@ -19,7 +19,9 @@ namespace tcp {
 class Connection::Impl {
 public:
     Impl() : seq_num_(0), ack_num_(0), src_port_(0), dst_port_(0) {
-        // Generate random source port
+        // Generate random source port in the range 10000-65535
+        // This range is also used in scripts/setup_firewall.sh to prevent
+        // the kernel from sending RST packets for our raw socket connections
         std::random_device rd;
         std::mt19937 gen(rd());
         std::uniform_int_distribution<uint16_t> dis(10000, 65535);
@@ -95,8 +97,8 @@ public:
         std::vector<uint8_t> accumulated_data;
         int attempts = 0;
         
-        // Set overall timeout for receiving (30 seconds total)
-        const auto timeout_duration = std::chrono::seconds(30);
+        // Set overall timeout for receiving
+        const auto timeout_duration = std::chrono::seconds(RECEIVE_TIMEOUT_SECONDS);
         auto start_time = std::chrono::steady_clock::now();
         
         // Keep trying to receive packets until we get data or timeout
@@ -125,7 +127,7 @@ public:
                     // Try to receive more packets with data for our connection
                     // This allows accumulating data from multiple packets
                     int extra_attempts = 0;
-                    while (extra_attempts < 10 && accumulated_data.size() < max_len) {
+                    while (extra_attempts < MAX_EXTRA_RECEIVE_ATTEMPTS && accumulated_data.size() < max_len) {
                         // Check timeout again
                         elapsed = std::chrono::steady_clock::now() - start_time;
                         if (elapsed >= timeout_duration) {
@@ -419,6 +421,13 @@ private:
     uint16_t dst_port_;
     std::string src_ip_;
     std::string dst_ip_;
+    
+    // Timeout and retry constants
+    // Overall timeout for receive operations (seconds)
+    static constexpr int RECEIVE_TIMEOUT_SECONDS = 30;
+    
+    // Extra attempts to accumulate data after first packet
+    static constexpr int MAX_EXTRA_RECEIVE_ATTEMPTS = 10;
     
     // Maximum number of receive attempts before giving up
     // This prevents infinite loops when filtering packets
