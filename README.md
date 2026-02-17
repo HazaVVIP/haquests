@@ -131,10 +131,10 @@ cd build/examples
 sudo ./simple_http_get http://example.com
 
 # Jalankan TLS connection test
-sudo ./tls_connection
+sudo ./tls_connection https://example.com
 
 # Jalankan HTTP smuggling demo (hanya untuk testing di lab sendiri!)
-sudo ./smuggling_clte
+sudo ./smuggling_clte http://example.com
 ```
 
 **PENTING**: Program-program ini memerlukan CAP_NET_RAW capability. Alternatif untuk sudo:

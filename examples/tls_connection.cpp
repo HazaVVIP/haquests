@@ -17,8 +17,11 @@ int main(int argc, char* argv[]) {
         uint16_t port = 443;
         std::string path = "/";
         
+        // Remove protocol prefix if present
         if (url.find("https://") == 0) {
             url = url.substr(8);
+        } else if (url.find("http://") == 0) {
+            url = url.substr(7);
         }
         
         size_t slash_pos = url.find('/');
