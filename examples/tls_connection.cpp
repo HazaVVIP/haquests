@@ -22,11 +22,21 @@ int main(int argc, char* argv[]) {
         }
         
         size_t slash_pos = url.find('/');
+        std::string host_port;
         if (slash_pos != std::string::npos) {
-            host = url.substr(0, slash_pos);
+            host_port = url.substr(0, slash_pos);
             path = url.substr(slash_pos);
         } else {
-            host = url;
+            host_port = url;
+        }
+        
+        // Parse host and port
+        size_t colon_pos = host_port.find(':');
+        if (colon_pos != std::string::npos) {
+            host = host_port.substr(0, colon_pos);
+            port = static_cast<uint16_t>(std::stoi(host_port.substr(colon_pos + 1)));
+        } else {
+            host = host_port;
         }
         
         std::cout << "Connecting to " << host << ":" << port << " (TLS)" << std::endl;

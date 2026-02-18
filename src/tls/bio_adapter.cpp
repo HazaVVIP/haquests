@@ -1,5 +1,7 @@
 #include "haquests/tls/bio_adapter.hpp"
 #include "haquests/tcp/connection.hpp"
+#include <unistd.h>
+#include <cstring>
 
 namespace haquests {
 namespace tls {
@@ -48,12 +50,17 @@ int BIOAdapter::bioRead(BIO* bio, char* data, int len) {
         return -1;
     }
     
+    // Receive data from TCP connection
+    // The TCP receive() has built-in timeout handling
     std::vector<uint8_t> received = conn->receive(len);
+    
     if (received.empty()) {
+        // No data received - tell OpenSSL to retry
         BIO_set_retry_read(bio);
         return -1;
     }
     
+    // Copy received data to output buffer
     std::memcpy(data, received.data(), received.size());
     return static_cast<int>(received.size());
 }
