@@ -9,6 +9,8 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/select.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #include <chrono>
 #include <thread>
 #include <cstring>
@@ -18,7 +20,8 @@ namespace tcp {
 
 class Connection::Impl {
 public:
-    Impl() : seq_num_(0), ack_num_(0), src_port_(0), dst_port_(0) {
+    Impl() : seq_num_(0), ack_num_(0), src_port_(0), dst_port_(0), 
+             use_standard_socket_(false), standard_sockfd_(-1) {
         // Generate random source port in the range 10000-65535
         // This range is also used in scripts/setup_firewall.sh to prevent
         // the kernel from sending RST packets for our raw socket connections
@@ -26,6 +29,10 @@ public:
         std::mt19937 gen(rd());
         std::uniform_int_distribution<uint16_t> dis(10000, 65535);
         src_port_ = dis(gen);
+    }
+    
+    ~Impl() {
+        close();
     }
     
     bool connect(const std::string& host, uint16_t port) {
@@ -47,6 +54,11 @@ public:
         dst_ip_ = std::string(inet_ntoa(addr->sin_addr));
         freeaddrinfo(result);
         
+        // Check if this is localhost - use standard socket instead of raw socket
+        if (dst_ip_ == "127.0.0.1" || host == "localhost") {
+            return connectStandardSocket(host, port);
+        }
+        
         // Get local IP address that would be used to reach destination
         src_ip_ = utils::getLocalIPAddress(dst_ip_);
         if (src_ip_.empty()) {
@@ -63,6 +75,10 @@ public:
     }
     
     ssize_t send(const uint8_t* data, size_t len) {
+        if (use_standard_socket_) {
+            return ::send(standard_sockfd_, data, len, 0);
+        }
+        
         if (state_machine_.getState() != core::TCPState::ESTABLISHED) {
             throw utils::ConnectionError("Not connected");
         }
@@ -93,6 +109,16 @@ public:
     }
     
     std::vector<uint8_t> receive(size_t max_len) {
+        if (use_standard_socket_) {
+            std::vector<uint8_t> buffer(max_len);
+            ssize_t received = ::recv(standard_sockfd_, buffer.data(), max_len, 0);
+            if (received > 0) {
+                buffer.resize(received);
+                return buffer;
+            }
+            return std::vector<uint8_t>();
+        }
+        
         // Accumulate data from multiple packets if needed
         std::vector<uint8_t> accumulated_data;
         int attempts = 0;
@@ -166,6 +192,14 @@ public:
     }
     
     void close() {
+        if (use_standard_socket_) {
+            if (standard_sockfd_ >= 0) {
+                ::close(standard_sockfd_);
+                standard_sockfd_ = -1;
+            }
+            return;
+        }
+        
         if (state_machine_.getState() == core::TCPState::ESTABLISHED) {
             sendFIN();
         }
@@ -174,10 +208,16 @@ public:
     }
     
     core::TCPState getState() const {
+        if (use_standard_socket_) {
+            return standard_sockfd_ >= 0 ? core::TCPState::ESTABLISHED : core::TCPState::CLOSED;
+        }
         return state_machine_.getState();
     }
     
     bool isConnected() const {
+        if (use_standard_socket_) {
+            return standard_sockfd_ >= 0;
+        }
         return state_machine_.getState() == core::TCPState::ESTABLISHED;
     }
 
@@ -402,15 +442,70 @@ private:
         size_t payload_len = len - payload_offset;
         const uint8_t* payload = buffer + payload_offset;
         
-        // Update acknowledgment number for received data
-        // This indicates we've received data up to (seq_num + payload_len)
-        // TCP retransmissions will have the same seq_num, so this correctly
-        // sets ack_num_ to the same value, which is the expected behavior
         if (payload_len > 0) {
-            ack_num_ = ntohl(tcp_hdr->seq_num) + payload_len;
+            uint32_t pkt_seq = ntohl(tcp_hdr->seq_num);
+            
+            // Check if this is new data or a retransmission/duplicate
+            // Only process packets with sequence number >= what we've already acknowledged
+            // This filters out duplicate packets that raw sockets might see multiple times
+            if (ack_num_ > 0 && pkt_seq < ack_num_ && (pkt_seq + payload_len) <= ack_num_) {
+                // This packet contains only old data we've already received - ignore it
+                return std::vector<uint8_t>();
+            }
+            
+            // Update acknowledgment number for new data
+            // Only update if this packet extends beyond what we've already ack'd
+            uint32_t new_ack = pkt_seq + payload_len;
+            if (new_ack > ack_num_) {
+                ack_num_ = new_ack;
+            }
         }
         
         return std::vector<uint8_t>(payload, payload + payload_len);
+    }
+    
+    // Standard socket fallback for localhost connections
+    bool connectStandardSocket(const std::string& host, uint16_t port) {
+        use_standard_socket_ = true;
+        
+        // Create standard TCP socket
+        standard_sockfd_ = socket(AF_INET, SOCK_STREAM, 0);
+        if (standard_sockfd_ < 0) {
+            return false;
+        }
+        
+        // Connect to server
+        struct sockaddr_in server_addr;
+        std::memset(&server_addr, 0, sizeof(server_addr));
+        server_addr.sin_family = AF_INET;
+        server_addr.sin_port = htons(port);
+        
+        // Resolve hostname
+        struct addrinfo hints, *result;
+        std::memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_STREAM;
+        
+        int ret = getaddrinfo(host.c_str(), nullptr, &hints, &result);
+        if (ret != 0) {
+            ::close(standard_sockfd_);
+            standard_sockfd_ = -1;
+            return false;
+        }
+        
+        struct sockaddr_in* addr = reinterpret_cast<struct sockaddr_in*>(result->ai_addr);
+        server_addr.sin_addr = addr->sin_addr;
+        freeaddrinfo(result);
+        
+        // Connect
+        if (::connect(standard_sockfd_, reinterpret_cast<struct sockaddr*>(&server_addr),
+                      sizeof(server_addr)) < 0) {
+            ::close(standard_sockfd_);
+            standard_sockfd_ = -1;
+            return false;
+        }
+        
+        return true;
     }
     
     StateMachine state_machine_;
@@ -421,6 +516,10 @@ private:
     uint16_t dst_port_;
     std::string src_ip_;
     std::string dst_ip_;
+    
+    // Standard socket fallback for localhost
+    bool use_standard_socket_;
+    int standard_sockfd_;
     
     // Timeout and retry constants
     // Overall timeout for receive operations (seconds)
