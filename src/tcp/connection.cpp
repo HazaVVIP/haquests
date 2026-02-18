@@ -19,7 +19,9 @@ namespace tcp {
 class Connection::Impl {
 public:
     Impl() : seq_num_(0), ack_num_(0), src_port_(0), dst_port_(0) {
-        // Generate random source port
+        // Generate random source port in the range 10000-65535
+        // This range is also used in scripts/setup_firewall.sh to prevent
+        // the kernel from sending RST packets for our raw socket connections
         std::random_device rd;
         std::mt19937 gen(rd());
         std::uniform_int_distribution<uint16_t> dis(10000, 65535);
@@ -91,12 +93,22 @@ public:
     }
     
     std::vector<uint8_t> receive(size_t max_len) {
-        // Keep trying to receive packets until we get one for our connection
-        // Timeout is handled by the underlying socket receive which blocks
-        // We limit attempts to prevent infinite loops in case of unexpected behavior
+        // Accumulate data from multiple packets if needed
+        std::vector<uint8_t> accumulated_data;
         int attempts = 0;
         
-        while (attempts < MAX_RECEIVE_ATTEMPTS) {
+        // Set overall timeout for receiving
+        const auto timeout_duration = std::chrono::seconds(RECEIVE_TIMEOUT_SECONDS);
+        auto start_time = std::chrono::steady_clock::now();
+        
+        // Keep trying to receive packets until we get data or timeout
+        while (attempts < MAX_RECEIVE_ATTEMPTS && accumulated_data.empty()) {
+            // Check if we've exceeded overall timeout
+            auto elapsed = std::chrono::steady_clock::now() - start_time;
+            if (elapsed >= timeout_duration) {
+                break;
+            }
+            
             uint8_t buffer[65535];
             ssize_t received = socket_.receive(buffer, sizeof(buffer));
             
@@ -104,17 +116,53 @@ public:
                 // Parse packet and extract TCP payload data
                 std::vector<uint8_t> data = parsePacketData(buffer, received);
                 if (!data.empty()) {
-                    return data;
+                    accumulated_data.insert(accumulated_data.end(), data.begin(), data.end());
+                    
+                    // If we have enough data or hit max_len, return
+                    if (accumulated_data.size() >= max_len) {
+                        accumulated_data.resize(max_len);
+                        return accumulated_data;
+                    }
+                    
+                    // Try to receive more packets with data for our connection
+                    // This allows accumulating data from multiple packets
+                    int extra_attempts = 0;
+                    while (extra_attempts < MAX_EXTRA_RECEIVE_ATTEMPTS && accumulated_data.size() < max_len) {
+                        // Check timeout again
+                        elapsed = std::chrono::steady_clock::now() - start_time;
+                        if (elapsed >= timeout_duration) {
+                            break;
+                        }
+                        
+                        received = socket_.receive(buffer, sizeof(buffer));
+                        if (received > 0) {
+                            data = parsePacketData(buffer, received);
+                            if (!data.empty()) {
+                                accumulated_data.insert(accumulated_data.end(), data.begin(), data.end());
+                            }
+                        } else {
+                            // Timeout or error - return what we have
+                            break;
+                        }
+                        extra_attempts++;
+                    }
+                    
+                    return accumulated_data;
                 }
                 // If empty, it wasn't for our connection, keep trying
+            } else if (received < 0) {
+                // Timeout or error - if we have any data, return it
+                if (!accumulated_data.empty()) {
+                    return accumulated_data;
+                }
+                // Otherwise continue trying (will be limited by overall timeout)
             }
             
             attempts++;
         }
         
-        // Exceeded maximum attempts - this shouldn't happen in normal operation
-        // It indicates either a very busy network or a configuration issue
-        return std::vector<uint8_t>();
+        // Return whatever data we accumulated (might be empty)
+        return accumulated_data;
     }
     
     void close() {
@@ -373,6 +421,13 @@ private:
     uint16_t dst_port_;
     std::string src_ip_;
     std::string dst_ip_;
+    
+    // Timeout and retry constants
+    // Overall timeout for receive operations (seconds)
+    static constexpr int RECEIVE_TIMEOUT_SECONDS = 30;
+    
+    // Extra attempts to accumulate data after first packet
+    static constexpr int MAX_EXTRA_RECEIVE_ATTEMPTS = 10;
     
     // Maximum number of receive attempts before giving up
     // This prevents infinite loops when filtering packets

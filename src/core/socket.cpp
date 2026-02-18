@@ -5,9 +5,14 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <cstring>
+#include <errno.h>
 
 namespace haquests {
 namespace core {
+
+// Socket receive timeout in seconds
+// This prevents raw socket receive operations from blocking indefinitely
+static constexpr int SOCKET_RECV_TIMEOUT_SECONDS = 5;
 
 RawSocket::RawSocket() : sockfd_(-1), is_open_(false) {}
 
@@ -29,6 +34,16 @@ bool RawSocket::open() {
     // Set IP_HDRINCL to tell kernel we provide IP header
     int one = 1;
     if (setsockopt(sockfd_, IPPROTO_IP, IP_HDRINCL, &one, sizeof(one)) < 0) {
+        ::close(sockfd_);
+        sockfd_ = -1;
+        return false;
+    }
+    
+    // Set receive timeout to prevent indefinite blocking
+    struct timeval tv;
+    tv.tv_sec = SOCKET_RECV_TIMEOUT_SECONDS;
+    tv.tv_usec = 0;
+    if (setsockopt(sockfd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
         ::close(sockfd_);
         sockfd_ = -1;
         return false;
@@ -73,8 +88,16 @@ ssize_t RawSocket::receive(uint8_t* buffer, size_t buffer_size) {
     struct sockaddr_in src;
     socklen_t src_len = sizeof(src);
     
-    return recvfrom(sockfd_, buffer, buffer_size, 0,
-                    reinterpret_cast<struct sockaddr*>(&src), &src_len);
+    ssize_t result = recvfrom(sockfd_, buffer, buffer_size, 0,
+                              reinterpret_cast<struct sockaddr*>(&src), &src_len);
+    
+    // If recvfrom returns -1 and errno is EAGAIN or EWOULDBLOCK, it's a timeout
+    // Return -1 to indicate timeout (caller should handle this)
+    if (result < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        return -1;
+    }
+    
+    return result;
 }
 
 bool RawSocket::isOpen() const {
