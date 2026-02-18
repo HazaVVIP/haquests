@@ -61,18 +61,13 @@ int BIOAdapter::bioRead(BIO* bio, char* data, int len) {
         return -1;
     }
     
-    fprintf(stderr, "[BIO] Read request: %d bytes, buffer has %zu bytes at offset %zu\n", 
-            len, buf->buffer.size(), buf->offset);
-    
-    // Check if we have buffered data
+    // Check if we have buffered data from a previous read
     if (buf->offset < buf->buffer.size()) {
         // Return buffered data
         size_t available = buf->buffer.size() - buf->offset;
         size_t to_copy = std::min(available, static_cast<size_t>(len));
         std::memcpy(data, buf->buffer.data() + buf->offset, to_copy);
         buf->offset += to_copy;
-        
-        fprintf(stderr, "[BIO] Returning %zu bytes from buffer\n", to_copy);
         
         // Clear buffer if fully consumed
         if (buf->offset >= buf->buffer.size()) {
@@ -83,27 +78,16 @@ int BIOAdapter::bioRead(BIO* bio, char* data, int len) {
         return static_cast<int>(to_copy);
     }
     
-    // No buffered data - receive new data from TCP
-    fprintf(stderr, "[BIO] Calling TCP receive...\n");
+    // No buffered data - receive new data from TCP connection
     std::vector<uint8_t> received = buf->conn->receive(len);
     
     if (received.empty()) {
         // No data received - tell OpenSSL to retry
-        fprintf(stderr, "[BIO] No data, setting retry\n");
         BIO_set_retry_read(bio);
         return -1;
     }
     
-    fprintf(stderr, "[BIO] TCP returned %zu bytes\n", received.size());
-    
-    // Debug: print first 16 bytes
-    fprintf(stderr, "[BIO] Data: ");
-    for (size_t i = 0; i < std::min(received.size(), size_t(16)); i++) {
-        fprintf(stderr, "%02x ", received[i]);
-    }
-    fprintf(stderr, "\n");
-    
-    // If we received more than requested, buffer the extra
+    // If we received more than requested, buffer the extra for next read
     if (received.size() <= static_cast<size_t>(len)) {
         // Received data fits in request - return it all
         std::memcpy(data, received.data(), received.size());
@@ -113,7 +97,6 @@ int BIOAdapter::bioRead(BIO* bio, char* data, int len) {
         std::memcpy(data, received.data(), len);
         buf->buffer.assign(received.begin() + len, received.end());
         buf->offset = 0;
-        fprintf(stderr, "[BIO] Buffered %zu extra bytes\n", buf->buffer.size());
         return len;
     }
 }

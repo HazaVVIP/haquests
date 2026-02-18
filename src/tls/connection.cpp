@@ -27,14 +27,12 @@ public:
     bool connect(const std::string& host, uint16_t port) {
         // Create TCP connection first
         if (!tcp_conn_.connect(host, port)) {
-            ERR_print_errors_fp(stderr);
             return false;
         }
         
         // Create SSL context
         ssl_ctx_ = SSL_CTX_new(TLS_client_method());
         if (!ssl_ctx_) {
-            ERR_print_errors_fp(stderr);
             return false;
         }
         
@@ -49,7 +47,6 @@ public:
         // Create SSL structure
         ssl_ = SSL_new(ssl_ctx_);
         if (!ssl_) {
-            ERR_print_errors_fp(stderr);
             return false;
         }
         
@@ -61,11 +58,7 @@ public:
         SSL_set_tlsext_host_name(ssl_, host.c_str());
         
         // Perform handshake
-        int ret = SSL_connect(ssl_);
-        if (ret != 1) {
-            int ssl_error = SSL_get_error(ssl_, ret);
-            fprintf(stderr, "SSL_connect failed with return value: %d, SSL error: %d\n", ret, ssl_error);
-            ERR_print_errors_fp(stderr);
+        if (SSL_connect(ssl_) != 1) {
             return false;
         }
         
