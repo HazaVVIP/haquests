@@ -43,7 +43,12 @@ int main(int argc, char* argv[]) {
         size_t colon_pos = host_port.find(':');
         if (colon_pos != std::string::npos) {
             host = host_port.substr(0, colon_pos);
-            port = static_cast<uint16_t>(std::stoi(host_port.substr(colon_pos + 1)));
+            try {
+                port = static_cast<uint16_t>(std::stoi(host_port.substr(colon_pos + 1)));
+            } catch (const std::exception& e) {
+                std::cerr << "Invalid port number: " << host_port.substr(colon_pos + 1) << std::endl;
+                return 1;
+            }
         } else {
             host = host_port;
         }
