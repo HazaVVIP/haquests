@@ -402,12 +402,23 @@ private:
         size_t payload_len = len - payload_offset;
         const uint8_t* payload = buffer + payload_offset;
         
-        // Update acknowledgment number for received data
-        // This indicates we've received data up to (seq_num + payload_len)
-        // TCP retransmissions will have the same seq_num, so this correctly
-        // sets ack_num_ to the same value, which is the expected behavior
         if (payload_len > 0) {
-            ack_num_ = ntohl(tcp_hdr->seq_num) + payload_len;
+            uint32_t pkt_seq = ntohl(tcp_hdr->seq_num);
+            
+            // Check if this is new data or a retransmission/duplicate
+            // Only process packets with sequence number >= what we've already acknowledged
+            // This filters out duplicate packets that raw sockets might see multiple times
+            if (ack_num_ > 0 && pkt_seq < ack_num_ && (pkt_seq + payload_len) <= ack_num_) {
+                // This packet contains only old data we've already received - ignore it
+                return std::vector<uint8_t>();
+            }
+            
+            // Update acknowledgment number for new data
+            // Only update if this packet extends beyond what we've already ack'd
+            uint32_t new_ack = pkt_seq + payload_len;
+            if (new_ack > ack_num_) {
+                ack_num_ = new_ack;
+            }
         }
         
         return std::vector<uint8_t>(payload, payload + payload_len);
